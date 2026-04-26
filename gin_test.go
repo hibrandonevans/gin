@@ -743,6 +743,83 @@ func TestEngineHandleContextPreventsMiddlewareReEntry(t *testing.T) {
 	assert.Equal(t, int64(1), handlerCounterV2)
 }
 
+func TestEngineHandleContextNoRouteWithGroupMiddleware(t *testing.T) {
+	// Regression test for issue #1848: HandleContext from NoRoute should not
+	// accumulate handlers across calls when group middleware is involved.
+	var middlewareCounter, handlerCounter int64
+
+	r := New()
+	api := r.Group("/api")
+	{
+		api.Use(func(c *Context) {
+			atomic.AddInt64(&middlewareCounter, 1)
+			c.Next()
+		})
+		api.GET("/resource", func(c *Context) {
+			atomic.AddInt64(&handlerCounter, 1)
+			c.Status(http.StatusOK)
+		})
+	}
+
+	r.NoRoute(func(c *Context) {
+		c.Request.URL.Path = "/api/resource"
+		r.HandleContext(c)
+	})
+
+	// Direct hit: middleware and handler each run once.
+	w := PerformRequest(r, "GET", "/api/resource")
+	assert.Equal(t, 200, w.Code)
+	assert.Equal(t, int64(1), atomic.LoadInt64(&middlewareCounter))
+	assert.Equal(t, int64(1), atomic.LoadInt64(&handlerCounter))
+
+	// Via NoRoute → HandleContext: middleware and handler each run once more (not twice).
+	atomic.StoreInt64(&middlewareCounter, 0)
+	atomic.StoreInt64(&handlerCounter, 0)
+	w = PerformRequest(r, "GET", "/no-such-path")
+	assert.Equal(t, 200, w.Code)
+	assert.Equal(t, int64(1), atomic.LoadInt64(&middlewareCounter))
+	assert.Equal(t, int64(1), atomic.LoadInt64(&handlerCounter))
+}
+
+func TestEngineHandleContextNoRouteWithEngineMiddleware(t *testing.T) {
+	// Regression test for issue #1848: engine-level middleware runs once per
+	// handleHTTPRequest call (twice total: NoRoute call + HandleContext call),
+	// while group middleware and the target handler run only once.
+	var engineMiddlewareCounter, groupMiddlewareCounter, handlerCounter int64
+
+	r := New()
+	r.Use(func(c *Context) {
+		atomic.AddInt64(&engineMiddlewareCounter, 1)
+		c.Next()
+	})
+
+	api := r.Group("/api")
+	{
+		api.Use(func(c *Context) {
+			atomic.AddInt64(&groupMiddlewareCounter, 1)
+			c.Next()
+		})
+		api.GET("/resource", func(c *Context) {
+			atomic.AddInt64(&handlerCounter, 1)
+			c.Status(http.StatusOK)
+		})
+	}
+
+	r.NoRoute(func(c *Context) {
+		c.Request.URL.Path = "/api/resource"
+		r.HandleContext(c)
+	})
+
+	w := PerformRequest(r, "GET", "/no-such-path")
+	assert.Equal(t, 200, w.Code)
+	// Engine middleware runs once per handleHTTPRequest call: once for the
+	// original request (which hits NoRoute) and once for the re-entered call.
+	assert.Equal(t, int64(2), atomic.LoadInt64(&engineMiddlewareCounter))
+	// Group middleware and handler run only for the re-entered /api/resource call.
+	assert.Equal(t, int64(1), atomic.LoadInt64(&groupMiddlewareCounter))
+	assert.Equal(t, int64(1), atomic.LoadInt64(&handlerCounter))
+}
+
 func TestEngineHandleContextUseEscapedPathPercentEncoded(t *testing.T) {
 	r := New()
 	r.UseEscapedPath = true
@@ -1083,4 +1160,83 @@ func TestUpdateRouteTreesCalledOnce(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Equal(t, "ok", w.Body.String())
 	}
+}
+
+func TestEngineHandleContextNoRouteWithGroupMiddleware(t *testing.T) {
+	// Regression test for issue #1848:
+	// HandleContext called from NoRoute should not accumulate handlers across calls.
+	var groupMiddlewareCount, handlerCount int64
+
+	r := New()
+
+	v1 := r.Group("/v1")
+	v1.Use(func(c *Context) {
+		atomic.AddInt64(&groupMiddlewareCount, 1)
+	})
+	v1.GET("/target", func(c *Context) {
+		atomic.AddInt64(&handlerCount, 1)
+		c.Status(http.StatusOK)
+	})
+
+	r.NoRoute(func(c *Context) {
+		c.Request.URL.Path = "/v1/target"
+		r.HandleContext(c)
+	})
+
+	// Direct request: group middleware and handler each run once.
+	resp := PerformRequest(r, "GET", "/v1/target")
+	assert.Equal(t, http.StatusOK, resp.Code)
+	assert.Equal(t, int64(1), atomic.LoadInt64(&groupMiddlewareCount))
+	assert.Equal(t, int64(1), atomic.LoadInt64(&handlerCount))
+
+	// NoRoute request: HandleContext triggers a fresh handleHTTPRequest,
+	// so group middleware and handler each run once more (total 2).
+	resp = PerformRequest(r, "GET", "/no-such-path")
+	assert.Equal(t, http.StatusOK, resp.Code)
+	assert.Equal(t, int64(2), atomic.LoadInt64(&groupMiddlewareCount))
+	assert.Equal(t, int64(2), atomic.LoadInt64(&handlerCount))
+}
+
+func TestEngineHandleContextNoRouteWithEngineMiddleware(t *testing.T) {
+	// Regression test for issue #1848:
+	// Engine-level middleware runs once per handleHTTPRequest call.
+	// When NoRoute calls HandleContext, engine middleware runs twice total
+	// (once for the original request, once for the re-entered request).
+	var engineMiddlewareCount, groupMiddlewareCount, handlerCount int64
+
+	r := New()
+	r.Use(func(c *Context) {
+		atomic.AddInt64(&engineMiddlewareCount, 1)
+		c.Next()
+	})
+
+	v1 := r.Group("/v1")
+	v1.Use(func(c *Context) {
+		atomic.AddInt64(&groupMiddlewareCount, 1)
+	})
+	v1.GET("/target", func(c *Context) {
+		atomic.AddInt64(&handlerCount, 1)
+		c.Status(http.StatusOK)
+	})
+
+	r.NoRoute(func(c *Context) {
+		c.Request.URL.Path = "/v1/target"
+		r.HandleContext(c)
+	})
+
+	// Direct request: each counter increments by 1.
+	resp := PerformRequest(r, "GET", "/v1/target")
+	assert.Equal(t, http.StatusOK, resp.Code)
+	assert.Equal(t, int64(1), atomic.LoadInt64(&engineMiddlewareCount))
+	assert.Equal(t, int64(1), atomic.LoadInt64(&groupMiddlewareCount))
+	assert.Equal(t, int64(1), atomic.LoadInt64(&handlerCount))
+
+	// NoRoute request: engine middleware runs for the original call (reaches NoRoute)
+	// and again for the HandleContext call, so it runs twice (+2 total = 3).
+	// Group middleware and handler run only during the HandleContext call (+1 total each).
+	resp = PerformRequest(r, "GET", "/no-such-path")
+	assert.Equal(t, http.StatusOK, resp.Code)
+	assert.Equal(t, int64(3), atomic.LoadInt64(&engineMiddlewareCount))
+	assert.Equal(t, int64(2), atomic.LoadInt64(&groupMiddlewareCount))
+	assert.Equal(t, int64(2), atomic.LoadInt64(&handlerCount))
 }
