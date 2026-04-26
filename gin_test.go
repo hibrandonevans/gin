@@ -743,6 +743,70 @@ func TestEngineHandleContextPreventsMiddlewareReEntry(t *testing.T) {
 	assert.Equal(t, int64(1), handlerCounterV2)
 }
 
+func TestEngineHandleContextNoRouteWithGroupMiddleware(t *testing.T) {
+	var engineMiddlewareCounter, groupMiddlewareCounter, groupHandlerCounter int64
+
+	r := New()
+	r.Use(func(c *Context) {
+		atomic.AddInt64(&engineMiddlewareCounter, 1)
+	})
+
+	group := r.Group("/api")
+	{
+		group.Use(func(c *Context) {
+			atomic.AddInt64(&groupMiddlewareCounter, 1)
+		})
+		group.GET("/data", func(c *Context) {
+			atomic.AddInt64(&groupHandlerCounter, 1)
+			c.Status(http.StatusOK)
+		})
+	}
+
+	r.NoRoute(func(c *Context) {
+		c.Request.URL.Path = "/api/data"
+		r.HandleContext(c)
+	})
+
+	w := PerformRequest(r, http.MethodGet, "/api/unknown")
+
+	assert.Equal(t, 200, w.Code)
+	assert.Equal(t, int64(2), engineMiddlewareCounter)
+	assert.Equal(t, int64(1), groupMiddlewareCounter)
+	assert.Equal(t, int64(1), groupHandlerCounter)
+}
+
+func TestEngineHandleContextNoRouteWithEngineMiddleware(t *testing.T) {
+	var engineMiddlewareCounter, groupMiddlewareCounter, groupHandlerCounter int64
+
+	r := New()
+	r.Use(func(c *Context) {
+		atomic.AddInt64(&engineMiddlewareCounter, 1)
+	})
+
+	group := r.Group("/api")
+	{
+		group.Use(func(c *Context) {
+			atomic.AddInt64(&groupMiddlewareCounter, 1)
+		})
+		group.GET("/data", func(c *Context) {
+			atomic.AddInt64(&groupHandlerCounter, 1)
+			c.Status(http.StatusOK)
+		})
+	}
+
+	r.NoRoute(func(c *Context) {
+		c.Request.URL.Path = "/api/data"
+		r.HandleContext(c)
+	})
+
+	w := PerformRequest(r, http.MethodGet, "/notfound")
+
+	assert.Equal(t, 200, w.Code)
+	assert.Equal(t, int64(2), engineMiddlewareCounter)
+	assert.Equal(t, int64(1), groupMiddlewareCounter)
+	assert.Equal(t, int64(1), groupHandlerCounter)
+}
+
 func TestEngineHandleContextUseEscapedPathPercentEncoded(t *testing.T) {
 	r := New()
 	r.UseEscapedPath = true
