@@ -1084,3 +1084,71 @@ func TestUpdateRouteTreesCalledOnce(t *testing.T) {
 		assert.Equal(t, "ok", w.Body.String())
 	}
 }
+
+// Test for issue #1848: HandleContext from NoRoute with group middleware
+func TestEngineHandleContextNoRouteWithGroupMiddleware(t *testing.T) {
+	var groupMiddlewareCounter, groupHandlerCounter int64
+
+	r := New()
+	v1 := r.Group("/v1")
+	{
+		v1.Use(func(c *Context) {
+			atomic.AddInt64(&groupMiddlewareCounter, 1)
+		})
+		v1.GET("/test", func(c *Context) {
+			atomic.AddInt64(&groupHandlerCounter, 1)
+			c.String(http.StatusOK, "success")
+		})
+	}
+
+	r.NoRoute(func(c *Context) {
+		c.Request.URL.Path = "/v1/test"
+		r.HandleContext(c)
+	})
+
+	// when - request to a non-existent path that will hit NoRoute
+	response := PerformRequest(r, "GET", "/nonexistent")
+
+	// then
+	assert.Equal(t, http.StatusOK, response.Code)
+	assert.Equal(t, int64(1), groupMiddlewareCounter)
+	assert.Equal(t, int64(1), groupHandlerCounter)
+}
+
+// Test for issue #1848: HandleContext from NoRoute with engine middleware
+func TestEngineHandleContextNoRouteWithEngineMiddleware(t *testing.T) {
+	var engineMiddlewareCounter, groupMiddlewareCounter, groupHandlerCounter int64
+
+	r := New()
+	r.Use(func(c *Context) {
+		atomic.AddInt64(&engineMiddlewareCounter, 1)
+	})
+
+	v1 := r.Group("/v1")
+	{
+		v1.Use(func(c *Context) {
+			atomic.AddInt64(&groupMiddlewareCounter, 1)
+		})
+		v1.GET("/test", func(c *Context) {
+			atomic.AddInt64(&groupHandlerCounter, 1)
+			c.String(http.StatusOK, "success")
+		})
+	}
+
+	r.NoRoute(func(c *Context) {
+		c.Request.URL.Path = "/v1/test"
+		r.HandleContext(c)
+	})
+
+	// when - request to a non-existent path that will hit NoRoute
+	response := PerformRequest(r, "GET", "/nonexistent")
+
+	// then
+	assert.Equal(t, http.StatusOK, response.Code)
+	// Engine middleware runs twice: once in the initial request, once in the HandleContext call
+	assert.Equal(t, int64(2), engineMiddlewareCounter)
+	// Group middleware runs once: only in the HandleContext call
+	assert.Equal(t, int64(1), groupMiddlewareCounter)
+	// Handler runs once: only in the HandleContext call
+	assert.Equal(t, int64(1), groupHandlerCounter)
+}
