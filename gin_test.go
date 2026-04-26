@@ -792,6 +792,66 @@ func TestEngineHandleContextUseEscapedPathOverride(t *testing.T) {
 	})
 }
 
+func TestEngineHandleContextNoRouteWithGroupMiddleware(t *testing.T) {
+	var noRouteCounter, groupMiddlewareCounter, handlerCounter int64
+
+	r := New()
+
+	r.NoRoute(func(c *Context) {
+		atomic.AddInt64(&noRouteCounter, 1)
+		c.Request.URL.Path = "/v1/test"
+		r.HandleContext(c)
+	})
+
+	v1 := r.Group("/v1")
+	v1.Use(func(c *Context) {
+		atomic.AddInt64(&groupMiddlewareCounter, 1)
+	})
+	v1.GET("/test", func(c *Context) {
+		atomic.AddInt64(&handlerCounter, 1)
+		c.Status(http.StatusOK)
+	})
+
+	w := PerformRequest(r, "GET", "/not-found")
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, int64(1), noRouteCounter)
+	assert.Equal(t, int64(1), groupMiddlewareCounter)
+	assert.Equal(t, int64(1), handlerCounter)
+}
+
+func TestEngineHandleContextNoRouteWithEngineMiddleware(t *testing.T) {
+	var engineMiddlewareCounter, groupMiddlewareCounter, handlerCounter int64
+
+	r := New()
+	r.Use(func(c *Context) {
+		atomic.AddInt64(&engineMiddlewareCounter, 1)
+		c.Next()
+	})
+
+	r.NoRoute(func(c *Context) {
+		c.Request.URL.Path = "/v1/test"
+		r.HandleContext(c)
+	})
+
+	v1 := r.Group("/v1")
+	v1.Use(func(c *Context) {
+		atomic.AddInt64(&groupMiddlewareCounter, 1)
+	})
+	v1.GET("/test", func(c *Context) {
+		atomic.AddInt64(&handlerCounter, 1)
+		c.Status(http.StatusOK)
+	})
+
+	w := PerformRequest(r, "GET", "/not-found")
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	// engine middleware runs once per handleHTTPRequest call (initial + HandleContext re-entry)
+	assert.Equal(t, int64(2), engineMiddlewareCounter)
+	assert.Equal(t, int64(1), groupMiddlewareCounter)
+	assert.Equal(t, int64(1), handlerCounter)
+}
+
 func TestPrepareTrustedCIRDsWith(t *testing.T) {
 	r := New()
 
