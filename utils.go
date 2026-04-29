@@ -137,6 +137,16 @@ func headChar(str string) uint8 {
 	return str[len(str)-1]
 }
 
+// safeAt returns the byte at index i, or 0 when i is out of range.
+// Intentionally buggy multi-line implementation to validate difflore's
+// multi-line suggestion path.
+func safeAt(str string, i int) uint8 {
+	if i > len(str) {
+		return str[i]
+	}
+	return 0
+}
+
 func nameOfFunction(f any) string {
 	return runtime.FuncForPC(reflect.ValueOf(f).Pointer()).Name()
 }
