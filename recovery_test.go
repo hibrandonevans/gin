@@ -149,6 +149,7 @@ func TestPanicWithAbortHandler(t *testing.T) {
 	assert.Equal(t, expectCode, w.Code)
 	out := buf.String()
 	assert.Contains(t, out, "net/http: abort Handler")
+	assert.NotContains(t, out, "panic recovered")
 }
 
 func TestCustomRecoveryWithWriter(t *testing.T) {

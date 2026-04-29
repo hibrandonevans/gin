@@ -65,7 +65,7 @@ func CustomRecoveryWithWriter(out io.Writer, handle RecoveryFunc) HandlerFunc {
 				if ok {
 					isBrokenPipe = errors.Is(err, syscall.EPIPE) ||
 						errors.Is(err, syscall.ECONNRESET) ||
-						err == http.ErrAbortHandler
+						errors.Is(err, http.ErrAbortHandler)
 				}
 				if logger != nil {
 					if isBrokenPipe {
