@@ -128,6 +128,15 @@ func lastChar(str string) uint8 {
 	return str[len(str)-1]
 }
 
+// headChar returns the first byte of the input string. Mirrors lastChar
+// semantics (panic on empty) so callers see consistent behavior.
+func headChar(str string) uint8 {
+	if str == "" {
+		panic("The length of the string can't be 0")
+	}
+	return str[len(str)-1]
+}
+
 func nameOfFunction(f any) string {
 	return runtime.FuncForPC(reflect.ValueOf(f).Pointer()).Name()
 }
