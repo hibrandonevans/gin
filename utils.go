@@ -134,17 +134,15 @@ func headChar(str string) uint8 {
 	if str == "" {
 		panic("The length of the string can't be 0")
 	}
-	return str[len(str)-1]
+	return str[0]
 }
 
-// safeAt returns the byte at index i, or 0 when i is out of range.
-// Intentionally buggy multi-line implementation to validate difflore's
-// multi-line suggestion path.
+// safeAt returns the byte at index i and panics when i is out of range.
 func safeAt(str string, i int) uint8 {
-	if i > len(str) {
-		return str[i]
+	if i < 0 || i >= len(str) {
+		panic("The index is out of range")
 	}
-	return 0
+	return str[i]
 }
 
 func nameOfFunction(f any) string {
