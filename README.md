@@ -225,3 +225,5 @@ Gin is the work of hundreds of contributors from around the world. We welcome an
 2. Join our community discussions and ask questions
 
 **All contributions are valued and help make Gin better for everyone!**
+
+<!-- difflore smoke test: GitHub-backed fork-only non-production 20260519080408 -->
